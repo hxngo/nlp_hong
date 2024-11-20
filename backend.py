@@ -7,8 +7,8 @@ import whisper
 from pytubefix import YouTube
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.chat_models import ChatOpenAI
+from langchain_community.vectorstores import Chroma
+from langchain_community.chat_models import ChatOpenAI
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain.docstore.document import Document
@@ -29,7 +29,69 @@ class ContentAnalyzer:
             stop_words='english'
         )
         self.user_history = []
-        self.load_history()
+        self.load_history() # load_history 메서드 내에서 예외 처리
+
+    def add_to_history(self, video_data: Dict[str, Any]) -> None:
+        """시청 기록을 추가합니다."""
+        try:
+            history_item = {
+                'video_id': video_data.get('video_id', ''),
+                'title': video_data.get('title', ''),
+                'content': video_data.get('content', ''),
+                'timestamp': datetime.now().isoformat(),
+                'metadata': video_data.get('metadata', {})
+            }
+            self.user_history.append(history_item)
+            self.save_history()
+        except Exception as e:
+            print(f"시청 기록 추가 실패: {str(e)}")
+
+    def get_content_recommendations(self, current_content: str, n_recommendations: int = 5) -> List[Dict[str, Any]]:
+        """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다."""
+        try:
+            if not self.user_history:
+                return []
+            
+            all_contents = [current_content] + [item['content'] for item in self.user_history]
+            tfidf_matrix = self.vectorizer.fit_transform(all_contents)
+            cosine_similarities = cosine_similarities(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+
+            similar_indices = cosine_similarities.argsort()[::-1]
+            recommendations = []
+
+            for idx in similar_indices[:n_recommendations]:
+                history_item = self.user_history[idx]
+                recommendations.append({
+                    'video_id': history_item.get('video_id', ''),
+                    'title': history_item.get('title', ''),
+                    'similarity_score': float(cosine_similarities[idx]),
+                    'timestamp': history_item.get('timestamp', ''),
+                    'metadata': history_item.get('metadata', {})
+                })
+
+                return recommendations
+        except Exception as e:
+            print(f"추천 컨텐츠 생성 실패: {str(e)}")
+            return []
+
+
+    def save_history(self) -> None:
+        """시청 기록을 파일에 저장합니다."""
+        try:
+            with open('user_history.json', 'w', encoding='utf-8') as f:
+                json.dump(self.user_history, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"시청 기록 저장 실패: {str(e)}")
+
+    def load_history(self) -> None:
+        """저장된 시청 기록을 불러옵니다."""
+        try:
+            if os.path.exists('user_history.json'):
+                with open('user_history.json', 'r', encoding='utf-8') as f:
+                    self.user_history = json.load(f)
+        except Exception as e:
+            print(f"시청 기록 불러오기 실패: {str(e)}")
+            self.user_history = []
 
     def summarize_content(self, text: str, max_length: int = 300) -> Dict[str, Any]:
         """영상 내용을 자동으로 요약합니다."""
@@ -194,6 +256,35 @@ class YouTubeExtractor:
         except Exception as e:
             raise Exception(f"PyTube 정보 추출 실패: {str(e)}")
 
+class ContentAnalyzer:
+    def get_content_recommendations(self, current_content: str, n_recommendations: int = 5) -> List[Dict[str, Any]]:
+        """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다."""
+        try:
+            if not self.user_history:
+                return []
+            
+            all_contents = [current_content] + [item['content'] for item in self.user_history]
+            tfidf_matrix = self.vectorizer.fit_transform(all_contents)
+            cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+            
+            similar_indices = cosine_similarities.argsort()[::-1]
+            recommendations = []
+            
+            for idx in similar_indices[:n_recommendations]:
+                history_item = self.user_history[idx]
+                recommendations.append({
+                    'video_id': history_item.get('video_id', ''),
+                    'title': history_item.get('title', ''),
+                    'similarity_score': float(cosine_similarities[idx]),
+                    'timestamp': history_item.get('timestamp', ''),
+                    'metadata': history_item.get('metadata', {})
+                })
+            
+            return recommendations
+        except Exception as e:
+            print(f"추천 컨텐츠 생성 실패: {str(e)}")
+            return []
+
 class VideoProcessor:
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -212,7 +303,50 @@ class VideoProcessor:
         self.youtube_extractor = YouTubeExtractor()
         
         self.content_analyzer = ContentAnalyzer()
+    
+    def summarize_segments(self,segments: List[Dict[str, Any]], video_length: int) -> List[Dict[str, Any]]:
+        """영상의 구간을 길이에 따라 요약합니다.
+        
+        Args:
+            segments: 자막 세그먼트 리스트
+            video_length: 영상 길이(초)
+            
+        Returns:
+            요약된 세그먼트 리스트
+        """
+        # segments가 비어있거나 문자열인 경우 처리
+        if not segments or isinstance(segments, str):
+            return []
+        
+        # 영상 길이에 따른 구간 설정
+        interval = 60 if video_length <= 600 else 180  # 1분(60초) 또는 3분(180초) 단위
+        summarized_segments = []
+        current_segment = []
+        current_start = segments[0].get('start', 0)
 
+        try:
+            for segment in segments:
+                # 세그먼트가 딕셔너리이고 필요한 키를 포함하는지 확인
+                if not isinstance(segment, dict) or not all(key in segment for key in ['start', 'end', 'text']):
+                    continue
+                    
+                current_segment.append(segment['text'])
+                
+                if segment['end'] - current_start >= interval or segment == segments[-1]:
+                    summarized_segments.append({
+                        'start': current_start,
+                        'end': segment['end'],
+                        'text': ' '.join(current_segment)
+                    })
+                    current_segment = []
+                    current_start = segment['end']
+        
+        except Exception as e:
+            print(f"세그먼트 요약 중 오류 발생: {str(e)}")
+            return []
+
+        return summarized_segments
+        
     def extract_key_points(self, text: str) -> Dict[str, Any]:
         """영상의 핵심 내용을 추출하고 구조화합니다."""
         try:
@@ -282,67 +416,87 @@ class VideoProcessor:
         except Exception as e:
             raise Exception(f"키워드 추출 실패: {str(e)}")
 
+    def get_content_recommendations(self, current_content: str, n_recommendations: int = 5) -> List[Dict[str, Any]]:
+        """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다."""
+        try:
+            if not self.user_history:  # 시청 기록이 없으면
+                return []              # 빈 리스트 반환
+        
+            # 현재 컨텐츠와 이전 시청 기록들을 비교
+            all_contents = [current_content] + [item['content'] for item in self.user_history]
+            tfidf_matrix = self.vectorizer.fit_transform(all_contents)
+            cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+        
+            # 유사도가 높은 순으로 정렬
+            similar_indices = cosine_similarities.argsort()[::-1]
+            recommendations = []
+        
+            for idx in similar_indices[:n_recommendations]:
+                history_item = self.user_history[idx]
+                recommendations.append({
+                    'video_id': history_item.get('video_id', ''),
+                    'title': history_item.get('title', ''),
+                    'similarity_score': float(cosine_similarities[idx]),
+                    'timestamp': history_item.get('timestamp', ''),
+                    'metadata': history_item.get('metadata', {})
+                })
+        
+            return recommendations
+        except Exception as e:
+            print(f"추천 생성 실패: {str(e)}")
+            return []
 
     def process_video(self, url: str) -> Dict[str, Any]:
         try:
+            # 새 영상 처리 전에 이전 데이터 초기화
+            if hasattr(self, 'vectorstore'):
+                del self.vectorstore
+
+            # 벡터스토어 디렉토리 초기화
+            if os.path.exists("video_db"):
+                import shutil
+                shutil.rmtree("video_db")
+
             video_info = self._get_comprehensive_video_info(url)
             transcription = self._extract_transcription(url)
         
-            # GPT를 사용하여 구조화된 요약 생성
-            llm = ChatOpenAI(
-                model="gpt-3.5-turbo",
-                temperature=0,
-                openai_api_key=self.openai_api_key
-            )
-        
-            prompt = f"""
-            다음 영상의 내용을 분석하여 구조화된 형식으로 요약해주세요:
-
-            {transcription['text']}
-
-            다음 형식으로 출력해주세요:
-            1. 프레임워크 소개
-            - 이름: [프레임워크 이름]
-            - 개발사: [개발사]
-            - GitHub 인기도: [스타 수]
-
-            2. 주요 특징
-            - [특징1]
-            - [특징2]
-            - [특징3]
-
-            3. 장단점
-            장점:
-            - [장점1]
-            - [장점2]
-            단점:
-            - [단점1]
-            - [단점2]
-
-            4. 적합한 사용자
-            - [사용자 프로필 설명]
-
-            5. 핵심 용어 설명
-            - [용어1]: [설명]
-            - [용어2]: [설명]
-            """
-        
-            structured_summary = llm.predict(prompt)
-        
+            # 문서 생성 및 벡터스토어 생성
             documents = self._create_documents(transcription, video_info)
             vectorstore = self._create_vectorstore(documents)
-        
+            
+            # 시청 기록에 추가 및 추천 컨텐츠 생성
+            recommendations = []
+            if isinstance(transcription, dict) and 'text' in transcription:
+                text_content = transcription['text']
+            else:
+                text_content = str(transcription)
+
+            try:
+                # 시청 기록 추가
+                self.content_analyzer.add_to_history({
+                    'video_id': self.youtube_extractor.get_video_id(url),
+                    'title': video_info.get('title', ''),
+                    'content': text_content,
+                    'metadata': video_info
+                })
+
+                # 추천 컨텐츠 생성
+                recommendations = self.content_analyzer.get_content_recommendations(text_content, n_recommendations=5)
+            except Exception as e:
+                print(f"추천 컨텐츠 생성 실패: {str(e)}")
+
+            # 요약 생성
+            summary = self.content_analyzer.summarize_content(text_content)
+
             return {
                 "video_info": video_info,
                 "vectorstore": vectorstore,
                 "transcription": transcription,
-                "summary": {
-                    'structured_summary': structured_summary,
-                    'original_length': len(transcription['text'].split())
-                }
-            }
+                "recommendations": recommendations
+            }   
         except Exception as e:
             raise RuntimeError(f"비디오 처리 중 오류 발생: {e}")
+
 
     
     def _get_comprehensive_video_info(self, url: str) -> Dict[str, Any]:
@@ -497,18 +651,33 @@ class VideoProcessor:
             raise Exception(f"벡터스토어 생성 실패: {str(e)}")
 
     def search_content(self, vectorstore: Chroma, query: str, role: str = "일반") -> Dict[str, Any]:
-        """벡터스토어에서 쿼리에 관련된 내용을 검색합니다."""
+        """벡터스토어에서 쿼리에 관련된 내용을 검색합니다.
+
+        Args:
+            vectorstore: chroma 벡터스토어 인스턴스
+            query: 검색할 질문
+            role: 답변 스타일 (기본값: "일반")
+
+        Returns:
+            검색 결과와 관련 문서를 포함한 딕셔너리
+
+        """
         try:
             llm = ChatOpenAI(
                 model="gpt-3.5-turbo",
-                temperature=0,
+                temperature=0.3,
                 openai_api_key=self.openai_api_key
             )
             
             prompt_template = """
-            다음 영상 내용을 바탕으로 질문에 답변해주세요:
+            다음 영상 내용을 바탕으로 질문에 답변해주세요.
+            답변은 명확하고 이해하기 쉽게 작성해주세요.
+
+            영상 내용:
             {context}
+
             질문: {question}
+
             답변:
             """
             
@@ -517,25 +686,35 @@ class VideoProcessor:
                 input_variables=["context", "question"]
             )
             
+            # QA 체인 생성
             qa_chain = RetrievalQA.from_chain_type(
                 llm=llm,
                 chain_type="stuff",
-                retriever=vectorstore.as_retriever(),
-                chain_type_kwargs={"prompt": PROMPT},
+                retriever=vectorstore.as_retriever(
+                    search_kwargs={"k": 3} #상위 3개 문서만 검색
+                ),
+                chain_type_kwargs={
+                    "prompt": PROMPT,
+                    "verbose": False #디버그 출력 비활성화
+                },
                 return_source_documents=True
             )
-            
+
+            # 검색 실행
             result = qa_chain({"query": query})
-            
+
+            # 결과 반환
             return {
                 'answer': result['result'],
                 'source_documents': [
                     {
                         'content': doc.page_content,
-                        'metadata': doc.metadata
+                        'metadata': doc.metadata,
+                        'relevance_score': getattr(doc, 'relevance_score', None)
                     } for doc in result['source_documents']
                 ]
             }
+            
         except Exception as e:
             raise Exception(f"검색 실패: {str(e)}")
 

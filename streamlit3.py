@@ -2,7 +2,11 @@ import streamlit as st
 import os
 from datetime import datetime
 import pandas as pd
-from backend2 import VideoProcessor, BookmarkManager, NoteManager, TranscriptManager, YouTubeExtractor
+from backend import VideoProcessor, BookmarkManager, NoteManager, TranscriptManager, YouTubeExtractor
+from bookmark_sidebar import show_bookmark_sidebar
+from search_history_sidebar import show_search_history_sidebar
+from watch_history_sidebar import show_watch_history_sidebar
+from backend import VideoProcessor
 
 # 페이지 설정
 st.set_page_config(
@@ -66,35 +70,23 @@ def initialize_session_state():
     if 'search_history' not in st.session_state:
         st.session_state.search_history = []
 
-def process_video():
-    """비디오 처리 함수"""
-    try:
-        with st.spinner('영상을 처리하는 중입니다...'):
-            result = st.session_state.processor.process_video(st.session_state.youtube_url)
-            
-            # 자막 정보 저장
-            video_id = YouTubeExtractor.get_video_id(st.session_state.youtube_url)
-            if isinstance(result['transcription'], dict) and 'segments' in result['transcription']:
-                st.session_state.transcript_manager.add_transcript(
-                    video_id,
-                    result['transcription']['segments']
-                )
-                result['transcription'] = result['transcription']['text']
-            
-            st.session_state.current_video = result
-            st.success('영상 처리가 완료되었습니다!')
-            return True
-    except Exception as e:
-        st.error(f'영상 처리 중 오류가 발생했습니다: {str(e)}')
-        return False
+def format_time(seconds: float) -> str:
+    """초를 mm:ss 형식으로 변환"""
+    minutes = int(seconds) // 60
+    seconds = int(seconds) % 60
+    return f"{minutes:02d}:{seconds:02d}"
 
 def search_content():
     """컨텐츠 검색 함수"""
     try:
         if not st.session_state.search_query:
             st.warning('검색어를 입력해주세요.')
-            return
-        
+            return None
+            
+        if st.session_state.current_video is None:
+            st.warning('먼저 영상을 처리해주세요.')
+            return None
+            
         with st.spinner('검색 중...'):
             result = st.session_state.processor.search_content(
                 st.session_state.current_video['vectorstore'],
@@ -109,32 +101,16 @@ def search_content():
             })
             
             return result
+            
     except Exception as e:
         st.error(f'검색 중 오류가 발생했습니다: {str(e)}')
         return None
 
-def save_note(note_content: str):
-    """메모 저장 함수"""
-    if note_content.strip():
-        video_info = None
-        if st.session_state.current_video:
-            video_info = st.session_state.current_video['video_info']
-        
-        st.session_state.note_manager.add_note(
-            content=note_content,
-            video_info=video_info
-        )
-        return True
-    return False
-
-def format_time(seconds: float) -> str:
-    """초를 mm:ss 형식으로 변환"""
-    minutes = int(seconds) // 60
-    seconds = int(seconds) % 60
-    return f"{minutes:02d}:{seconds:02d}"
-
 def main():
+    # 세션 상태 초기화 및 VideoProcessor 인스턴스 생성
     initialize_session_state()
+    processor = st.session_state.processor
+
     st.title('🎓 YouTube 강의 검색 도우미')
     
     # 좌우 컬럼 분할
@@ -153,19 +129,29 @@ def main():
         
         # 영상 처리 버튼
         if st.button('영상 처리 시작', key='process_button'):
-            process_video()
+            if youtube_url:
+                with st.spinner('영상 처리 중...'):
+                    try:
+                        result = processor.process_video(youtube_url)
+                        st.session_state.current_video = result
+                        st.success('영상 처리가 완료되었습니다!')
+                    except Exception as e:
+                        st.error(f'영상 처리 중 오류가 발생했습니다: {str(e)}')
+            else:
+                st.warning('YouTube URL을 입력해주세요.')
         
-        st.markdown("---")  # 기존 st.divider()를 대체
+        st.markdown("---")
         
         # 메모 입력 섹션
         st.subheader('✏️ 메모하기')
         note_content = st.text_area(
             '메모를 입력하세요:',
             height=200,
-            placeholder='여기에 메모를 작성하세요...'
+            placeholder='여기에 메모를 작성하세요...',
+            key='note_content'
         )
         
-        if st.button('메모 저장', use_container_width=True):
+        if st.button('메모 저장', key='save_note_button', use_container_width=True):
             if save_note(note_content):
                 st.success('메모가 저장되었습니다!')
                 st.balloons()
@@ -186,7 +172,7 @@ def main():
                 st.warning('먼저 영상을 처리해주세요.')
             else:
                 st.session_state.search_result = search_content()
-    
+
     # 오른쪽 컬럼 (메인 컨텐츠)
     with right_col:
         # 비디오 플레이어
@@ -199,43 +185,46 @@ def main():
                 
                 # 자동 요약 섹션
                 st.subheader('📝 영상 요약')
-                if 'summary' in st.session_state.current_video:
-                    summary = st.session_state.current_video['summary']
-                    st.markdown(f"""
-                    **요약 내용:**
-                    {summary['summary']}
+                if 'transcription' in st.session_state.current_video:
+                    transcription = st.session_state.current_video['transcription']
+                    video_length = st.session_state.current_video['video_info'].get('length', 0)
                     
-                    <div style='font-size: 0.8em; color: #666;'>
-                    원본 길이: {summary['original_length']} 단어 → 요약 길이: {summary['summary_length']} 단어
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # 요약 내용 복사 버튼
-                    if st.button('요약 내용 복사', key='copy_summary'):
-                        st.write('요약 내용이 클립보드에 복사되었습니다!')
-                        st.code(summary['summary'])
-                with st.sidebar:
-                    st.markdown("---")
-                    st.subheader('⚙️ 요약 설정')
-                    max_summary_length = st.slider(
-                        '요약 길이 (단어)',
-                        min_value=100,
-                        max_value=500,
-                        value=300,
-                        step=50,
-                        key='max_summary_length_slider'
-                    )
+                    if isinstance(transcription, dict) and 'segments' in transcription:
 
-                    if st.button('요약 다시 생성', key='regenerate_summary'):
-                        if st.session_state.current_video and 'transcription' in st.session_state.current_video:
-                            with st.spinner('요약을 다시 생성하는 중...'):
-                                new_summary = st.session_state.processor.content_analyzer.summarize_content(
-                                    st.session_state.current_video['transcription'],
-                                    max_length=max_summary_length
-                                )
-                                st.session_state.current_video['summary'] = new_summary
-                                st.success('요약이 새로 생성되었습니다!')
-                                st.experimental_rerun()
+                        # 요약된 세그먼트 생성
+                        summarized_segments = st.session_state.processor.summarize_segments(transcription['segments'], video_length)
+
+                        for segment in summarized_segments:
+                            with st.expander(f"구간 {format_time(segment['start'])} ~ {format_time(segment['end'])}"):
+                                st.write(segment['text'])
+                    
+                    # 사이드바에 각 섹션 추가
+                    with st.sidebar:
+                        st.divider()
+                        show_bookmark_sidebar()
+        
+                        st.divider()
+                        show_search_history_sidebar()
+        
+                        st.divider()
+                        show_watch_history_sidebar()
+
+                    if 'summary' in st.session_state.current_video:
+                        summary = st.session_state.current_video['summary']                
+                        st.markdown(f"""
+                        **요약 내용:**
+                        {summary['summary']}
+                        
+                        <div style='font-size: 0.8em; color: #666;'>
+                        원본 길이: {summary['original_length']} 단어 → 요약 길이: {summary['summary_length']} 단어
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 요약 내용 복사 버튼
+                        if st.button('요약 내용 복사', key='copy_summary'):
+                            st.write('요약 내용이 클립보드에 복사되었습니다!')
+                            st.code(summary['summary'])
+
 
                 # 추천 컨텐츠 섹션
                 st.subheader('🎯 추천 컨텐츠')
@@ -321,43 +310,32 @@ def main():
             result = st.session_state.search_result
             
             st.markdown(f"**답변:**\n{result['answer']}")
-            
-            with st.expander('🔎 관련 구간'):
-                for idx, doc in enumerate(result['source_documents']):
-                    st.markdown(f"**구간 {idx+1}**")
-                    st.write(doc['content'])
-                    if st.button(f'북마크 추가 #{idx}', key=f'bookmark_{idx}'):
-                        st.session_state.bookmark_manager.add_bookmark(
-                            timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            content=doc['content'],
-                            video_info=doc['metadata']
-                        )
-                        st.success('북마크가 추가되었습니다!')
-    
+
     # 북마크 섹션
     st.markdown("---")
     st.header('📚 북마크')
     bookmarks = st.session_state.bookmark_manager.get_bookmarks()
-    
+
     if bookmarks:
         for idx, bookmark in enumerate(bookmarks):
             with st.expander(f"📌 북마크 {idx+1} - {bookmark['timestamp']}"):
                 st.write(bookmark['content'])
-                
+
                 # 비디오 URL과 타임스탬프가 있는 경우 링크 생성
                 if 'video_info' in bookmark and 'url' in bookmark['video_info']:
                     video_url = bookmark['video_info']['url']
                     timestamp = bookmark['video_info'].get('timestamp', 0)
                     timestamp_url = f"{video_url}&t={timestamp}"
                     st.markdown(f"🎥 [이 구간으로 이동]({timestamp_url})")
-                
-                if st.button('삭제', key=f'delete_bookmark_{idx}'):
+
+                if st.button(f'삭제', key=f'delete_bookmark_{idx}'):
                     st.session_state.bookmark_manager.remove_bookmark(bookmark['timestamp'])
-                    st.experimental_rerun()
+                    st.rerun()
+
     else:
         st.info('저장된 북마크가 없습니다.')
-        
-    # 검색 기록
+
+    # 검색 기록 섹션
     st.markdown("---")
     st.header('📜 검색 기록')
     if st.session_state.search_history:
@@ -373,33 +351,41 @@ def main():
         )
     else:
         st.info('검색 기록이 없습니다.')
-        
+
     # 시청 기록 섹션
     st.markdown("---")
     st.subheader('📚 시청 기록')
     if st.button('시청 기록 보기', key='view_history'):
-        history = st.session_state.processor.content_analyzer.user_history
-        if history:
-            history_df = pd.DataFrame([
-                {
-                    '시청 시간': item['timestamp'],
-                    '제목': item['title'],
-                    '영상 ID': item['video_id']
-                } for item in history
-            ])
-            st.dataframe(
-                history_df,
-                hide_index=True,
-                column_config={
-                    '시청 시간': st.column_config.DatetimeColumn(
-                        'Watched At',
-                        format='YYYY-MM-DD HH:mm'
+        try:
+            # 시청 기록이 있는지 확인
+            if hasattr(st.session_state.processor.content_analyzer, 'user_history'):
+                history = st.session_state.processor.content_analyzer.user_history
+                if history and len(history) > 0:
+                    history_df = pd.DataFrame([
+                        {
+                            '시청 시간': item['timestamp'],
+                            '제목': item['title'],
+                            '영상 ID': item['video_id']
+                        } for item in history
+                    ])
+
+                    #데이터프레임 표시
+                    st.dataframe(
+                        history_df,
+                        hide_index=True,
+                        column_config={
+                            '시청 시간': st.column_config.DatetimeColumn(
+                                'Watched At',
+                                format='YYYY-MM-DD HH:mm'
+                            )
+                        }
                     )
-                }
-            )
-        else:
-            st.info('아직 시청 기록이 없습니다.')
+                else:
+                    st.info('아직 시청 기록이 없습니다.')
+            else:
+                st.warning('시청 기록 기능을 사용할 수 없습니다.')
+        except Exception as e:
+            st.error(f'시청 기록을 불러오는 중 오류가 발생했습니다: {str(e)}')
 
 if __name__ == "__main__":
     main()
-
