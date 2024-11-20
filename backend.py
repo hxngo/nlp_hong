@@ -256,35 +256,6 @@ class YouTubeExtractor:
         except Exception as e:
             raise Exception(f"PyTube 정보 추출 실패: {str(e)}")
 
-class ContentAnalyzer:
-    def get_content_recommendations(self, current_content: str, n_recommendations: int = 5) -> List[Dict[str, Any]]:
-        """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다."""
-        try:
-            if not self.user_history:
-                return []
-            
-            all_contents = [current_content] + [item['content'] for item in self.user_history]
-            tfidf_matrix = self.vectorizer.fit_transform(all_contents)
-            cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
-            
-            similar_indices = cosine_similarities.argsort()[::-1]
-            recommendations = []
-            
-            for idx in similar_indices[:n_recommendations]:
-                history_item = self.user_history[idx]
-                recommendations.append({
-                    'video_id': history_item.get('video_id', ''),
-                    'title': history_item.get('title', ''),
-                    'similarity_score': float(cosine_similarities[idx]),
-                    'timestamp': history_item.get('timestamp', ''),
-                    'metadata': history_item.get('metadata', {})
-                })
-            
-            return recommendations
-        except Exception as e:
-            print(f"추천 컨텐츠 생성 실패: {str(e)}")
-            return []
-
 class VideoProcessor:
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -415,36 +386,6 @@ class VideoProcessor:
             }
         except Exception as e:
             raise Exception(f"키워드 추출 실패: {str(e)}")
-
-    def get_content_recommendations(self, current_content: str, n_recommendations: int = 5) -> List[Dict[str, Any]]:
-        """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다."""
-        try:
-            if not self.user_history:  # 시청 기록이 없으면
-                return []              # 빈 리스트 반환
-        
-            # 현재 컨텐츠와 이전 시청 기록들을 비교
-            all_contents = [current_content] + [item['content'] for item in self.user_history]
-            tfidf_matrix = self.vectorizer.fit_transform(all_contents)
-            cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
-        
-            # 유사도가 높은 순으로 정렬
-            similar_indices = cosine_similarities.argsort()[::-1]
-            recommendations = []
-        
-            for idx in similar_indices[:n_recommendations]:
-                history_item = self.user_history[idx]
-                recommendations.append({
-                    'video_id': history_item.get('video_id', ''),
-                    'title': history_item.get('title', ''),
-                    'similarity_score': float(cosine_similarities[idx]),
-                    'timestamp': history_item.get('timestamp', ''),
-                    'metadata': history_item.get('metadata', {})
-                })
-        
-            return recommendations
-        except Exception as e:
-            print(f"추천 생성 실패: {str(e)}")
-            return []
 
     def process_video(self, url: str) -> Dict[str, Any]:
         try:
