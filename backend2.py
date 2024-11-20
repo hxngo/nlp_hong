@@ -54,7 +54,7 @@ class ContentAnalyzer:
             
             all_contents = [current_content] + [item['content'] for item in self.user_history]
             tfidf_matrix = self.vectorizer.fit_transform(all_contents)
-            cosine_similarities = cosine_similarities(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+            cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
 
             similar_indices = cosine_similarities.argsort()[::-1]
             recommendations = []
@@ -69,7 +69,7 @@ class ContentAnalyzer:
                     'metadata': history_item.get('metadata', {})
                 })
 
-                return recommendations
+            return recommendations
         except Exception as e:
             print(f"추천 컨텐츠 생성 실패: {str(e)}")
             return []
@@ -99,76 +99,40 @@ class ContentAnalyzer:
             if not text or len(text.strip()) == 0:
                 raise ValueError("텍스트가 비어있습니다.")
 
-            original_length = len(text.split())
-            if original_length < max_length:
-                return {
-                    'summary': text,
-                    'summary_length': original_length,
-                    'original_length': original_length
-                }
-
-            # 청크 크기를 더 작게 조정
-            chunks = self._split_text(text, max_length=2000)
+            chunks = self._split_text(text, max_length=400)
             summaries = []
-        
+
             for chunk in chunks:
                 if not chunk.strip():
                     continue
                 
                 try:
-                    chunk_words = len(chunk.split())
-                    min_length = min(100, chunk_words // 2)
-                    max_chunk_length = min(max_length, chunk_words)
-                
-                    if max_chunk_length <= min_length:
-                        summaries.append(chunk)
-                        continue
-
                     summary = self.summarizer(
                         chunk,
-                        max_length=max_chunk_length,
-                        min_length=min_length,
-                        do_sample=False,
-                        num_beams=4,
-                        length_penalty=2.0,
-                        early_stopping=True
+                        max_length=max_length,
+                        min_length=min(100, len(chunk.split())),
+                        do_sample=False
                     )[0]['summary_text']
                     summaries.append(summary)
                 except Exception as e:
                     print(f"청크 요약 중 오류 발생: {str(e)}")
                     summaries.append(chunk)
-        
-            if not summaries:
-                return {
-                    'summary': text[:max_length],
-                    'summary_length': min(len(text.split()), max_length),
-                    'original_length': original_length
-                }
-        
+
             final_summary = " ".join(summaries)
-        
-            # 최종 요약이 너무 길면 다시 요약
-            if len(final_summary.split()) > max_length:
-                try:
-                    final_summary = self.summarizer(
-                        final_summary,
-                        max_length=max_length,
-                        min_length=min(100, len(final_summary.split()) // 2),
-                        do_sample=False,
-                        num_beams=4,
-                        length_penalty=2.0,
-                        early_stopping=True
-                    )[0]['summary_text']
-                except Exception as e:
-                    print(f"최종 요약 생성 중 오류 발생: {str(e)}")
-                    words = final_summary.split()[:max_length]
-                    final_summary = " ".join(words)
         
             return {
                 'summary': final_summary,
                 'summary_length': len(final_summary.split()),
-                'original_length': original_length
+                'original_length': len(text.split())
             }
+        except Exception as e:
+            print(f"요약 처리 중 오류 발생: {str(e)}")
+            return {
+                'summary': text[:max_length],
+                'summary_length': min(len(text.split()), max_length),
+                'original_length': len(text.split())
+            }
+
         except Exception as e:
             print(f"요약 처리 중 오류 발생: {str(e)}")
             return {
@@ -176,9 +140,7 @@ class ContentAnalyzer:
                 'summary_length': min(len(text.split()), max_length),
                 'original_length': original_length
             }
-
-            
-
+        
     def _split_text(self, text: str, max_length: int = 4000) -> List[str]:
         """긴 텍스트를 처리 가능한 크기의 청크로 나눕니다."""
         words = text.split()

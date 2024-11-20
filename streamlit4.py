@@ -156,10 +156,10 @@ def main():
             if st.session_state.note_manager.save_note(note_content, video_info):
                 st.success('메모가 저장되었습니다!')
                 rain(
-                    emoji="🤩",
+                    emoji="🖕",
                     font_size=54,
                     falling_speed=5,
-                    animation_length="infinite"
+                    animation_length="3"
                 )
             else:
                 st.warning('메모를 작성해 주세요!')
