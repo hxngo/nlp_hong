@@ -2,11 +2,11 @@ import streamlit as st
 import os
 from datetime import datetime
 import pandas as pd
-from backend import VideoProcessor, BookmarkManager, NoteManager, TranscriptManager, YouTubeExtractor
+from backend2 import VideoProcessor, BookmarkManager, NoteManager, TranscriptManager, YouTubeExtractor
 from bookmark_sidebar import show_bookmark_sidebar
 from search_history_sidebar import show_search_history_sidebar
 from watch_history_sidebar import show_watch_history_sidebar
-from backend import VideoProcessor
+from streamlit_extras.let_it_rain import rain
 
 # 페이지 설정
 st.set_page_config(
@@ -153,11 +153,16 @@ def main():
         
         if st.button('메모 저장', key='save_note_button', use_container_width=True):
             video_info = st.session_state.current_video['video_info'] if st.session_state.current_video else None
-        if st.session_state.note_manager.save_note(note_content, video_info):
-            st.success('메모가 저장되었습니다!')
-            st.balloons()
-        else:
-            st.warning('메모를 작성해 주세요!')
+            if st.session_state.note_manager.save_note(note_content, video_info):
+                st.success('메모가 저장되었습니다!')
+                rain(
+                    emoji="🤩",
+                    font_size=54,
+                    falling_speed=5,
+                    animation_length="infinite"
+                )
+            else:
+                st.warning('메모를 작성해 주세요!')
         
         # 검색 섹션
         st.markdown("---")

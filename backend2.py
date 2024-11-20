@@ -582,11 +582,20 @@ class VideoProcessor:
     def _create_vectorstore(self, documents: List[Document]) -> Chroma:
         """문서로부터 벡터스토어를 생성합니다."""
         try:
+            # 기존 벡터스토어 디렉토리 삭제
+            if os.path.exists("video_db"):
+                import shutil
+                shutil.rmtree("video_db")
+
             vectorstore = Chroma.from_documents(
                 documents=documents,
                 embedding=self.embeddings,
                 persist_directory="video_db"
             )
+
+            # 벡터스토어 저장
+            vectorstore.persist()
+
             return vectorstore
         except Exception as e:
             raise Exception(f"벡터스토어 생성 실패: {str(e)}")
