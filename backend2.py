@@ -46,21 +46,27 @@ class ContentAnalyzer:
         except Exception as e:
             print(f"시청 기록 추가 실패: {str(e)}")
 
-    def get_content_recommendations(self, current_content: str, n_recommendations: int = 5) -> List[Dict[str, Any]]:
+    def get_content_recommendations(self, current_content: str, current_video_id: str = None, n_recommendations: int = 5) -> List[Dict[str, Any]]:
         """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다."""
         try:
             if not self.user_history:
                 return []
             
-            all_contents = [current_content] + [item['content'] for item in self.user_history]
+            # 현재 비디오 ID와 다른 항목만 필터링
+            filtered_history = [item for item in self.user_history if item['video_id'] != current_video_id] if current_video_id else self.user_history
+            
+            if not filtered_history:
+                return []
+        
+            all_contents = [current_content] + [item['content'] for item in filtered_history]
             tfidf_matrix = self.vectorizer.fit_transform(all_contents)
             cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
-
+        
             similar_indices = cosine_similarities.argsort()[::-1]
             recommendations = []
-
+        
             for idx in similar_indices[:n_recommendations]:
-                history_item = self.user_history[idx]
+                history_item = filtered_history[idx]
                 recommendations.append({
                     'video_id': history_item.get('video_id', ''),
                     'title': history_item.get('title', ''),
@@ -68,11 +74,12 @@ class ContentAnalyzer:
                     'timestamp': history_item.get('timestamp', ''),
                     'metadata': history_item.get('metadata', {})
                 })
-
+        
             return recommendations
         except Exception as e:
             print(f"추천 컨텐츠 생성 실패: {str(e)}")
             return []
+
 
 
     def save_history(self) -> None:
@@ -163,23 +170,6 @@ class ContentAnalyzer:
         
         return chunks
 
-    def save_history(self) -> None:
-        """시청 기록을 파일에 저장합니다."""
-        try:
-            with open('user_history.json', 'w', encoding='utf-8') as f:
-                json.dump(self.user_history, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"시청 기록 저장 실패: {str(e)}")
-
-    def load_history(self) -> None:
-        """저장된 시청 기록을 불러옵니다."""
-        try:
-            if os.path.exists('user_history.json'):
-                with open('user_history.json', 'r', encoding='utf-8') as f:
-                    self.user_history = json.load(f)
-        except Exception as e:
-            print(f"시청 기록 불러오기 실패: {str(e)}")
-            self.user_history = []
 
 class YouTubeExtractor:
     @staticmethod
@@ -369,6 +359,7 @@ class VideoProcessor:
             
             # 시청 기록에 추가 및 추천 컨텐츠 생성
             recommendations = []
+            video_id = self.youtube_extractor.get_video_id(url)
             if isinstance(transcription, dict) and 'text' in transcription:
                 text_content = transcription['text']
             else:
@@ -377,19 +368,16 @@ class VideoProcessor:
             try:
                 # 시청 기록 추가
                 self.content_analyzer.add_to_history({
-                    'video_id': self.youtube_extractor.get_video_id(url),
+                    'video_id': video_id,
                     'title': video_info.get('title', ''),
                     'content': text_content,
                     'metadata': video_info
                 })
 
                 # 추천 컨텐츠 생성
-                recommendations = self.content_analyzer.get_content_recommendations(text_content, n_recommendations=5)
+                recommendations = self.content_analyzer.get_content_recommendations(text_content, current_video_id=video_id, n_recommendations=5)
             except Exception as e:
                 print(f"추천 컨텐츠 생성 실패: {str(e)}")
-
-            # 요약 생성
-            summary = self.content_analyzer.summarize_content(text_content)
 
             return {
                 "video_info": video_info,
@@ -554,9 +542,6 @@ class VideoProcessor:
                 embedding=self.embeddings,
                 persist_directory="video_db"
             )
-
-            # 벡터스토어 저장
-            vectorstore.persist()
 
             return vectorstore
         except Exception as e:
