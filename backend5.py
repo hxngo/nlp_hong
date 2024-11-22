@@ -260,16 +260,23 @@ class VideoProcessor:
             video_info = self.youtube_extractor.get_video_info_pytube(url)
             transcription = self._extract_transcription(url)
 
-            # 시청 기록에 추가 및 추천 컨텐츠 생성
+            # 시청 기록에 추가
             video_id = self.youtube_extractor.get_video_id(url)
-
-            # GPT 요약 생성
-            summary = None
             if isinstance(transcription, dict) and 'text' in transcription:
+                self.content_analyzer.add_to_history({
+                    "video_id": video_id,
+                    "title": video_info.get("title", ""),
+                    "content": transcription['text'],
+                    "metadata": video_info
+                })
+
+                # GPT 요약 생성
                 summary = self.content_analyzer.summarize_with_gpt(
                     transcription['text'],
-                    max_length=300
+                max_length=300
                 )
+            else:
+                summary = None
 
             # 문서 생성 및 벡터스토어 생성
             documents = self._create_documents(transcription, video_info)
@@ -279,11 +286,12 @@ class VideoProcessor:
                 "video_info": video_info,
                 "vectorstore": vectorstore,
                 "transcription": transcription,
-                "summary": summary, # 요약 결과 추가
+                "summary": summary,
                 "recommendations": []
             }
         except Exception as e:
             raise RuntimeError(f"비디오 처리 중 오류 발생: {e}")
+
 
     def _extract_transcription(self, url: str) -> Dict[str, Any]:
         try:
