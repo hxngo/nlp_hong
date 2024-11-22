@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from datetime import datetime
 import pandas as pd
-from backend4 import VideoProcessor, BookmarkManager, NoteManager, TranscriptManager, YouTubeExtractor
+from backend5 import VideoProcessor, BookmarkManager, NoteManager, TranscriptManager, YouTubeExtractor
 from bookmark_sidebar import show_bookmark_sidebar
 from search_history_sidebar import show_search_history_sidebar
 from watch_history_sidebar import show_watch_history_sidebar
@@ -197,26 +197,32 @@ def main():
         # 비디오 플레이어
         if youtube_url:
             st.video(youtube_url)
-            
+        
             if st.session_state.current_video:
                 with st.expander('📊 영상 정보'):
                     st.json(st.session_state.current_video['video_info'])
+            
+                # 자동 요약 섹션 (한 번만 표시)
+                if 'summary' in st.session_state.current_video:
+                    st.subheader('📝 영상 요약')
+                    summary = st.session_state.current_video['summary']
                 
-                # 자동 요약 섹션
-                st.subheader('📝 영상 요약')
-                if 'transcription' in st.session_state.current_video:
-                    transcription = st.session_state.current_video['transcription']
-                    video_length = st.session_state.current_video['video_info'].get('length', 0)
-                    
-                    if isinstance(transcription, dict) and 'segments' in transcription:
+                    # 요약 내용 표시
+                    st.write("**요약 내용:**")
+                    st.write(summary['summary'])
+                
+                    # 요약 통계 표시
+                    st.markdown(f"""
+                    <div style='font-size: 0.8em; color: #666;'>
+                    원본 길이: {summary['original_length']} 단어 → 요약 길이: {summary['summary_length']} 단어
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                    # 요약 내용 복사 버튼
+                    if st.button('요약 내용 복사', key=f'copy_summary_{youtube_url}'):
+                        st.write('요약 내용이 클립보드에 복사되었습니다!')
+                        st.code(summary['summary'])
 
-                        # 요약된 세그먼트 생성
-                        summarized_segments = st.session_state.processor.summarize_segments(transcription['segments'], video_length)
-
-                        for segment in summarized_segments:
-                            with st.expander(f"구간 {format_time(segment['start'])} ~ {format_time(segment['end'])}"):
-                                st.write(segment['text'])
-                    
                     # 사이드바에 각 섹션 추가
                     with st.sidebar:
                         st.divider()
@@ -227,23 +233,6 @@ def main():
         
                         st.divider()
                         show_watch_history_sidebar()
-
-                    if 'summary' in st.session_state.current_video:
-                        summary = st.session_state.current_video['summary']                
-                        st.markdown(f"""
-                        **요약 내용:**
-                        {summary['summary']}
-                        
-                        <div style='font-size: 0.8em; color: #666;'>
-                        원본 길이: {summary['original_length']} 단어 → 요약 길이: {summary['summary_length']} 단어
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        # 요약 내용 복사 버튼
-                        if st.button('요약 내용 복사', key='copy_summary'):
-                            st.write('요약 내용이 클립보드에 복사되었습니다!')
-                            st.code(summary['summary'])
-
 
                 # 추천 컨텐츠 섹션
                 st.subheader('🎯 추천 컨텐츠')

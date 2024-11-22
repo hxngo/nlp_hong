@@ -24,6 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 
 # ContentAnalyzer 클래스
 class ContentAnalyzer:
+    
     def __init__(self):
         self.summarizer = pipeline(
             "summarization",
@@ -83,6 +84,51 @@ class ContentAnalyzer:
         except Exception as e:
             logging.error(f"추천 콘텐츠 생성 실패: {e}")
             return []
+
+    def summarize_with_gpt(self, text: str, max_length: int = 300) -> Dict[str, Any]:
+        """GPT를 사용하여 영상 내용을 요약합니다."""
+        try:
+            if not text or len(text.strip()) == 0:
+                raise ValueError("텍스트가 비어있습니다.")
+            
+            original_length = len(text.split())
+        
+            # GPT 모델 초기화
+            llm = ChatOpenAI(
+                model="gpt-3.5-turbo",
+                temperature=0.3,
+                openai_api_key=os.getenv("OPENAI_API_KEY")
+            )
+        
+            # 프롬프트 템플릿 설정
+            prompt_template = """
+            다음 영상 내용을 {max_length}단어 이내로 요약해주세요. 
+            주요 내용과 핵심 포인트를 포함해야 합니다.
+
+            영상 내용:
+            {text}
+
+            요약:
+            """
+        
+            prompt = PromptTemplate(
+                template=prompt_template,
+                input_variables=["text", "max_length"]
+            )
+        
+            # GPT로 요약 생성
+            chain = prompt | llm
+            summary = chain.invoke({"text": text, "max_length": max_length})
+        
+            return {
+                'summary': summary.content,
+                'summary_length': len(summary.content.split()),
+                'original_length': original_length
+            }
+        
+        except Exception as e:
+            raise Exception(f"GPT 요약 생성 실패: {str(e)}")
+
 
     def save_history(self) -> None:
         try:
@@ -214,26 +260,26 @@ class VideoProcessor:
             video_info = self.youtube_extractor.get_video_info_pytube(url)
             transcription = self._extract_transcription(url)
 
-            # 문서 생성 및 벡터스토어 생성
-            documents = self._create_documents(transcription, video_info)
-            vectorstore = self._create_vectorstore(documents)
-
             # 시청 기록에 추가 및 추천 컨텐츠 생성
             video_id = self.youtube_extractor.get_video_id(url)
 
-            if isinstance(transcription, dict) and 'segments' in transcription:
-                st.session_state.transcript_manager.add_transcript(
-                    video_id,
-                    transcription['segments']
+            # GPT 요약 생성
+            summary = None
+            if isinstance(transcription, dict) and 'text' in transcription:
+                summary = self.content_analyzer.summarize_with_gpt(
+                    transcription['text'],
+                    max_length=300
                 )
-                text_content = transcription['text']
-            else:
-                text_content = str(transcription)
+
+            # 문서 생성 및 벡터스토어 생성
+            documents = self._create_documents(transcription, video_info)
+            vectorstore = self._create_vectorstore(documents)
 
             return {
                 "video_info": video_info,
                 "vectorstore": vectorstore,
                 "transcription": transcription,
+                "summary": summary, # 요약 결과 추가
                 "recommendations": []
             }
         except Exception as e:
