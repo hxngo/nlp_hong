@@ -259,26 +259,23 @@ class VideoProcessor:
         try:
             video_info = self.youtube_extractor.get_video_info_pytube(url)
             transcription = self._extract_transcription(url)
-
-            # 시청 기록에 추가
+        
+            # 자막 정보 저장
             video_id = self.youtube_extractor.get_video_id(url)
-            if isinstance(transcription, dict) and 'text' in transcription:
-                self.content_analyzer.add_to_history({
-                    "video_id": video_id,
-                    "title": video_info.get("title", ""),
-                    "content": transcription['text'],
-                    "metadata": video_info
-                })
+            if isinstance(transcription, dict) and 'segments' in transcription:
+                st.session_state.transcript_manager.add_transcript(
+                    video_id,
+                    transcription['segments']
+                )
 
-                # GPT 요약 생성
+            # GPT 요약 생성
+            summary = None
+            if isinstance(transcription, dict) and 'text' in transcription:
                 summary = self.content_analyzer.summarize_with_gpt(
                     transcription['text'],
-                max_length=300
+                    max_length=300
                 )
-            else:
-                summary = None
 
-            # 문서 생성 및 벡터스토어 생성
             documents = self._create_documents(transcription, video_info)
             vectorstore = self._create_vectorstore(documents)
 
@@ -315,7 +312,7 @@ class VideoProcessor:
                 for segment in caption_tracks.split('\n\n'):
                     if not segment.strip():
                         continue
-                    
+                
                     lines = segment.split('\n')
                     if len(lines) >= 3:
                         try:
@@ -331,11 +328,12 @@ class VideoProcessor:
                         except Exception as e:
                             print(f"세그먼트 파싱 오류: {str(e)}")
                             continue
-                    # 자막이 없는 경우 Whisper 사용
+        
+            # 자막이 없거나 세그먼트가 비어있는 경우 Whisper 사용
             if not segments:
                 print("자막을 찾을 수 없어 Whisper 사용...")
                 audio = yt.streams.filter(only_audio=True).first()
-                audio_file = audio.download(filename="temp_audio")
+                audio_file = audio.download(filename="temp_audio.mp3")
                 result = self.model.transcribe(audio_file)
                 segments = [
                     {
@@ -347,6 +345,9 @@ class VideoProcessor:
                 ]
                 if os.path.exists(audio_file):
                     os.remove(audio_file)
+
+            if not segments:
+                raise Exception("자막을 추출할 수 없습니다.")
 
             return {
                 'text': ' '.join(segment['text'] for segment in segments),
@@ -378,7 +379,7 @@ class VideoProcessor:
             return vectorstore
         except Exception as e:
             logging.error(f"벡터스토어 생성 실패: {e}")
-            return None
+            return
 
     def search_content(self, vectorstore: Chroma, query: str, role: str = "일반") -> Dict[str, Any]:
         """벡터스토어에서 쿼리에 관련된 내용을 검색합니다.
