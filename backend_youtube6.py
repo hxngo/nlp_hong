@@ -2,9 +2,11 @@ import os
 import json
 import requests
 import numpy as np
+import logging
+import streamlit as st
+import whisper
 from typing import List, Dict, Any, Optional
 from datetime import datetime
-import whisper
 from pytubefix import YouTube
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -16,11 +18,22 @@ from langchain.docstore.document import Document
 from transformers import pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import logging
-import streamlit as st
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from google.oauth2 import service_account
+
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def get_youtube_service():
+    api_key = os.getenv('YOUTUBE_API_KEY')
+    try:
+        youtube = build('youtube', 'v3', developerKey=api_key)
+        return youtube
+    except Exception as e:
+        print(f"YouTube API 서비스 초기화 실패: {e}")
+        return None
 
 # ContentAnalyzer 클래스
 class ContentAnalyzer:
@@ -49,40 +62,126 @@ class ContentAnalyzer:
         except Exception as e:
             logging.error(f"시청 기록 추가 실패: {e}")
 
-    def get_content_recommendations(self, current_content: str, current_video_id: Optional[str] = None, n_recommendations: int = 5) -> List[Dict[str, Any]]:
+    def get_video_recommendations(self, video_id: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """현재 비디오와 관련된 YouTube 동영상을 검색합니다."""
         try:
+            from googleapiclient.discovery import build
+            youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
+        
+            # 현재 비디오의 상세 정보 가져오기
+            video_response = youtube.videos().list(
+                part='snippet,topicDetails',
+                id=video_id
+            ).execute()
+        
+            if not video_response['items']:
+                return []
+            
+            current_video = video_response['items'][0]['snippet']
+                
+            # 검색 쿼리 생성 (제목, 설명, 태그 기반)
+            search_query = f"{current_video['title']}"
+            if 'tags' in current_video:
+                search_query += f" {' '.join(video_info['tags'][:3])}"
+            if 'description' in video_info:
+                # 설명에서 첫 100자만 사용
+                search_query += f" {video_info['description'][:100]}"
+            
+            # 연관 동영상 검색
+            search_response = youtube.search().list(
+                q=search_query,
+                type='video',
+                part='snippet',
+                maxResults=max_results + 1,  # 여유있게 더 많은 결과 요청
+                relevanceLanguage='ko',
+                order='relevance',
+                videoCategoryId=current_video.get('categoryId'),
+                fields='items(id,snippet(title,description,thumbnails))'
+            ).execute()
+        
+            # 현재 비디오 제외하고 결과 처리
+            recommendations = []
+            for item in search_response.get('items', []):
+                if item['id']['videoId'] != video_id:
+                    try:
+                        video_detail = youtube.videos().list(
+                            part='statistics,snippet',
+                            id=item['id']['videoId']
+                        ).execute()
+                    
+                        if video_detail['items']:
+                            video_info = video_detail['items'][0]
+                            recommendations.append({
+                                'video_id': item['id']['videoId'],
+                                'title': video_info['snippet']['title'],
+                                'description': video_info['snippet']['description'],
+                                'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                                'view_count': int(video_info['statistics'].get('viewCount', 0)),
+                                'published_at': video_info['snippet']['publishedAt']
+                            })
+                    except Exception as detail_error:
+                        print(f"비디오 상세 정보 가져오기 실패: {detail_error}")
+                        continue
+                
+                    if len(recommendations) >= max_results:
+                        break
+                    
+            return recommendations
+        
+        except Exception as e:
+            print(f"YouTube API 검색 실패: {e}")
+            return []
+
+    def get_content_recommendations(self, current_content: str, current_video_id: Optional[str] = None, n_recommendations: int = 5) -> List[Dict[str, Any]]:
+        """현재 컨텐츠와 유사한 이전 시청 기록을 추천합니다.
+    
+        Args:
+            current_content (str): 현재 컨텐츠의 내용
+            current_video_id (Optional[str]): 현재 비디오 ID (중복 추천 방지용)
+            n_recommendations (int): 추천할 컨텐츠 개수
+        
+        Returns:
+            List[Dict[str, Any]]: 추천된 컨텐츠 목록
+        """
+        try:
+            # 시청 기록이 없으면 빈 리스트 반환
             if not self.user_history:
                 return []
 
+            # 현재 비디오를 제외한 시청 기록 필터링
             filtered_history = [
-                item for item in self.user_history if item["video_id"] != current_video_id
+                item for item in self.user_history 
+                if item["video_id"] != current_video_id
             ] if current_video_id else self.user_history
 
             if not filtered_history:
                 return []
 
+            # TF-IDF 매트릭스 생성 및 코사인 유사도 계산
             all_contents = [current_content] + [item["content"] for item in filtered_history]
             tfidf_matrix = self.vectorizer.fit_transform(all_contents)
             cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
 
-            recommendations = sorted(
-                [
-                    {
-                        "video_id": filtered_history[idx]["video_id"],
-                        "title": filtered_history[idx]["title"],
-                        "similarity_score": float(cosine_similarities[idx]),
-                        "timestamp": filtered_history[idx]["timestamp"],
-                        "metadata": filtered_history[idx]["metadata"]
-                    }
-                    for idx in range(len(filtered_history))
-                ],
+            # 유사도 점수를 기준으로 정렬된 추천 목록 생성
+            recommendations = []
+            for idx, similarity in enumerate(cosine_similarities):
+                recommendations.append({
+                    "video_id": filtered_history[idx]["video_id"],
+                    "title": filtered_history[idx]["title"],
+                    "similarity_score": float(similarity),
+                    "timestamp": filtered_history[idx]["timestamp"],
+                    "metadata": filtered_history[idx]["metadata"]
+                })
+        
+            # 유사도 점수로 정렬하여 상위 n개 반환
+            return sorted(
+                recommendations,
                 key=lambda x: x["similarity_score"],
                 reverse=True
             )[:n_recommendations]
 
-            return recommendations
         except Exception as e:
-            logging.error(f"추천 콘텐츠 생성 실패: {e}")
+            logging.error(f"추천 콘텐츠 생성 실패: {str(e)}")
             return []
 
     def summarize_with_gpt(self, text: str, max_length: int = 300) -> Dict[str, Any]:
@@ -185,14 +284,25 @@ class YouTubeExtractor:
 # VideoProcessor 클래스
 class VideoProcessor:
 
+    # VideoProcessor 클래스의 __init__ 메서드 수정
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.youtube_api_key = os.getenv("YOUTUBE_API_KEY")
+    
         if not self.openai_api_key:
             raise ValueError("OpenAI API 키가 설정되지 않았습니다.")
+        if not self.youtube_api_key:
+            raise ValueError("YouTube API 키가 설정되지 않았습니다.")
 
         self.model = whisper.load_model("base")
-        self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-        self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        self.embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-mpnet-base-v2",
+            model_kwargs={'device': 'cpu'}
+        )
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200
+        )
         self.youtube_extractor = YouTubeExtractor()
         self.content_analyzer = ContentAnalyzer()
 
@@ -263,19 +373,11 @@ class VideoProcessor:
             # 자막 정보 저장
             video_id = self.youtube_extractor.get_video_id(url)
         
-            # GPT 요약 및 추천 컨텐츠 생성
+            # GPT 요약 및 추천 컨텐츠 초기화
             summary = None
             recommendations = []
         
             if isinstance(transcription, dict) and 'text' in transcription:
-                # 시청 기록 추가
-                self.content_analyzer.add_to_history({
-                    "video_id": video_id,
-                    "title": video_info.get("title", ""),
-                    "content": transcription['text'],
-                    "metadata": video_info
-                })
-            
                 # 자막 저장
                 if 'segments' in transcription:
                     st.session_state.transcript_manager.add_transcript(
@@ -289,13 +391,47 @@ class VideoProcessor:
                     max_length=300
                 )
             
-                # 추천 컨텐츠 생성
-                recommendations = self.content_analyzer.get_content_recommendations(
-                    transcription['text'],
-                    current_video_id=video_id,
-                    n_recommendations=5
-                )
+                # YouTube API를 사용한 추천 컨텐츠 생성
+                try:
+                    from googleapiclient.discovery import build
+                    api_key = os.getenv('YOUTUBE_API_KEY')
+                    if not api_key:
+                        raise ValueError("YouTube API 키가 설정되지 않았습니다")
+                    
+                    youtube = build('youtube', 'v3', developerKey=api_key)
+                
+                    # 검색 쿼리 생성
+                    search_query = video_info.get('title', '')
+                
+                    # 연관 동영상 검색
+                    search_response = youtube.search().list(
+                        q=search_query,
+                        type='video',
+                        part='snippet',
+                        maxResults=10,
+                        relevanceLanguage='ko',
+                        order='relevance',
+                        fields='items(id,snippet(title, description, thumbnails))'
+                    ).execute()
+                
+                    # 현재 비디오 제외하고 결과 처리
+                    recommendations = []
+                    for item in search_response.get('items', []):
+                        if item['id']['videoId'] != video_id:
+                            recommendations.append({
+                                'video_id': item['id']['videoId'],
+                                'title': item['snippet']['title'],
+                                'description': item['snippet']['description'], 
+                                'thumbnail': item['snippet']['thumbnails']['high']['url']
+                            })
 
+                            if len(recommendations) >= 5:
+                                break
+                            
+                except Exception as e:
+                    print(f"YouTube API 검색 실패: {e}")
+                    recommendations = []
+            
             documents = self._create_documents(transcription, video_info)
             vectorstore = self._create_vectorstore(documents)
 
@@ -308,8 +444,7 @@ class VideoProcessor:
             }
         except Exception as e:
             raise RuntimeError(f"비디오 처리 중 오류 발생: {e}")
-
-
+        
     def _extract_transcription(self, url: str) -> Dict[str, Any]:
         try:
             yt = YouTube(url)
@@ -387,19 +522,19 @@ class VideoProcessor:
             if not documents:
                 raise ValueError("문서가 비어있습니다")
             
-            if os.path.exists("video_db"):
-                import shutil
-                shutil.rmtree("video_db")
-
             vectorstore = Chroma.from_documents(
                 documents=documents,
                 embedding=self.embeddings,
-                persist_directory="video_db" 
+                persist_directory="video_db"
             )
+        
+            if not vectorstore:
+                raise ValueError("벡터스토어 생성 실패")
+            
             return vectorstore
         except Exception as e:
-            logging.error(f"벡터스토어 생성 실패: {e}")
-            return
+            print(f"벡터스토어 생성 실패: {str(e)}")
+            return None
 
     def search_content(self, vectorstore: Chroma, query: str, role: str = "일반") -> Dict[str, Any]:
         """벡터스토어에서 쿼리에 관련된 내용을 검색합니다.

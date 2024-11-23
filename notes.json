@@ -1,1 +1,30 @@
-[]
+[
+  {
+    "timestamp": "2024-11-22 22:32:57",
+    "content": "히지니",
+    "video_info": {
+      "title": "RAG Explained",
+      "author": "IBM Technology",
+      "length": 483,
+      "views": 115181,
+      "description": "Get the interactive demo → https://ibm.biz/BdmPEb\nLearn about the technology → https://ibm.biz/BdmPEp\n\nOftentimes, GAI and RAG discussions are interconnected. Learn more about about RAG is and how it works alongside your databases, LLMs and vector databases for better results with Luv Aggarwal and Shawn Brennan. \n\nAI news moves fast. Sign up for a monthly newsletter for AI updates from IBM → https://ibm.biz/BdmP2c",
+      "thumbnail_url": "https://i.ytimg.com/vi/qppV3n3YlF8/sddefault.jpg",
+      "publish_date": "2024-05-07 05:50:45-07:00"
+    },
+    "created_at": "2024-11-22T22:32:57.050781"
+  },
+  {
+    "timestamp": "2024-11-23 20:05:48",
+    "content": "rlatjdgus\n",
+    "video_info": {
+      "title": "What is Retrieval-Augmented Generation (RAG)?",
+      "author": "IBM Technology",
+      "length": 395,
+      "views": 794457,
+      "description": "Get hands on RAG training in watsonx.ai→ https://ibm.biz/BdK6UZ\nLearn about the technology → https://ibm.biz/BdMsRT\n\nLarge language models usually give great answers, but because they're limited to the training data used to create the model. Over time they can become incomplete--or worse, generate answers that are just plain wrong. One way of improving the LLM results is called \"retrieval-augmented generation\" or RAG. In this video, IBM Senior Research Scientist Marina Danilevsky explains the LLM/RAG framework and how this combination delivers two big advantages, namely: the model gets the most up-to-date and trustworthy facts, and you can see where the model got its info, lending more credibility to what it generates.\n\nGet weekly AI, cloud, security and sustainability industry news, events and insights. → https://ibm.biz/BdK6UY",
+      "thumbnail_url": "https://i.ytimg.com/vi/T-D1OfcDW1M/sddefault.jpg",
+      "publish_date": "2023-08-23 04:00:32-07:00"
+    },
+    "created_at": "2024-11-23T20:05:48.398216"
+  }
+]
