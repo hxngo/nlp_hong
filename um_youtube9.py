@@ -21,42 +21,72 @@ st.set_page_config(
 
 # 스타일 설정
 st.markdown("""
-    <style>
-    :root {
-        --primary-color: #4A90E2;
-        --secondary-color: #2C3E50;
-        --accent-color: #E74C3C;
-        --text-color: #ECF0F1;
-        --background-color: #34495E;
-    }
-    
-    .transcript-segment {
-        background: var(--background-color);
-        border-radius: 10px;
-        padding: 15px;
-        margin: 10px 0;
-        border-left: 4px solid var(--primary-color);
-        color: var(--text-color);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-    
-    .timestamp {
-        background: var(--primary-color);
-        color: white;
-        padding: 4px 10px;
-        border-radius: 15px;
-        font-weight: bold;
-        margin-right: 10px;
-        font-size: 0.9em;
-        display: inline-block;
-    }
-    
-    .transcript-segment:hover {
-        transform: translateX(5px);
-        transition: transform 0.2s ease;
-        border-left-color: var(--accent-color);
-    }
-    </style>
+   <style>
+   /* 다크 모드 */
+   @media (prefers-color-scheme: dark) {
+       :root {
+           --primary-color: #4A90E2;
+           --secondary-color: #2C3E50;
+           --accent-color: #E74C3C;
+           --text-color: #ECF0F1;
+           --background-color: #34495E;
+       }
+   }
+
+   /* 라이트 모드 */
+   @media (prefers-color-scheme: light) {
+       :root {
+           --primary-color: #2980B9;
+           --secondary-color: #7F8C8D;
+           --accent-color: #C0392B;
+           --text-color: #2C3E50;
+           --background-color: #F5F5F5;
+       }
+   }
+   
+   .transcript-segment {
+       background: var(--background-color);
+       border-radius: 10px;
+       padding: 15px;
+       margin: 10px 0;
+       border-left: 4px solid var(--primary-color);
+       color: var(--text-color);
+       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+   }
+   
+   .timestamp {
+       background: var(--primary-color);
+       color: white;
+       padding: 4px 10px;
+       border-radius: 15px;
+       font-weight: bold;
+       margin-right: 10px;
+       font-size: 0.9em;
+       display: inline-block;
+   }
+   
+   /* 라이트 모드에서 timestamp 텍스트 색상 조정 */
+   @media (prefers-color-scheme: light) {
+       .timestamp {
+           color: #FFFFFF;  /* 밝은 배경에서도 잘 보이는 흰색 유지 */
+       }
+       .transcript-segment {
+           border-left-color: var(--primary-color);
+           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+       }
+   }
+   
+   .transcript-segment:hover {
+       transform: translateX(5px);
+       transition: transform 0.2s ease;
+       border-left-color: var(--accent-color);
+   }
+
+   /* 라이트/다크 모드 전환 시 부드러운 전환 효과 */
+   * {
+       transition: background-color 0.3s ease, color 0.3s ease;
+   }
+   </style>
 """, unsafe_allow_html=True)
 
 def initialize_session_state():
@@ -243,32 +273,77 @@ def show_full_transcript(youtube_url):
         except Exception as e:
             st.error(f'자막 데이터를 가져오는 중 오류가 발생했습니다: {str(e)}')
 
+def show_guide():
+    with st.expander("ℹ️ 사용 가이드", expanded=False):
+        st.markdown("""
+        ### 🎓 YouTube 강의 검색 도우미 사용법
+        
+        1. **영상 설정**
+           - YouTube URL을 입력하고 '영상 처리 시작' 버튼을 클릭합니다.
+           - 자막이 있는 영상을 권장합니다.
+        
+        2. **메모 작성**
+           - 사이드바의 메모 입력창에 내용을 작성합니다.
+           - 관련 태그를 선택하여 메모를 분류할 수 있습니다.
+        
+        3. **검색 기능**
+           - 영상 내용에 대해 질문하면 AI가 답변합니다.
+           - 자막에서 특정 키워드를 검색할 수 있습니다.
+        
+        4. **북마크와 기록**
+           - 중요한 부분을 북마크하여 나중에 다시 볼 수 있습니다.
+           - 시청 기록과 검색 기록이 자동으로 저장됩니다.
+        """)
+
 def main():
     initialize_session_state()
     processor = st.session_state.processor
     st.title('🎓 YouTube 강의 검색 도우미')
+    show_guide()
     
     # 사이드바 구성
     with st.sidebar:
         st.subheader('✏️ 메모하기')
+    
+        # 메모 입력
         note_content = st.text_area(
             '메모를 입력하세요:',
             height=200,
             placeholder='여기에 메모를 작성하세요...',
             key='sidebar_note_content'
         )
+    
+        # 태그 선택
+        default_tags = ['중요', '질문', '복습필요', '개념', '예시', '기타']
+        custom_tag = st.text_input('새로운 태그 추가:', key='new_tag')
+        if custom_tag:
+            if custom_tag not in default_tags:
+                default_tags.append(custom_tag)
+    
+        selected_tags = st.multiselect(
+            '태그 선택:',
+            options=default_tags,
+            key='note_tags'
+        )
+    
+        # 메모 저장 버튼
         if st.button('메모 저장', key='sidebar_save_note', use_container_width=True):
             try:
                 if not note_content or not note_content.strip():
                     st.warning('메모를 작성해 주세요!')
                     return
-                
+            
                 video_info = None
                 if st.session_state.current_video and 'video_info' in st.session_state.current_video:
                     video_info = st.session_state.current_video['video_info']
-                
-                if st.session_state.note_manager.save_note(note_content, video_info):
+            
+                if st.session_state.note_manager.save_note(
+                    note_content, 
+                    tags=selected_tags,
+                    video_info=video_info
+                ):
                     st.success('메모가 저장되었습니다!')
+                
                     rain(
                         emoji="✅",
                         font_size=54,

@@ -865,30 +865,42 @@ class NoteManager:
         self.notes = []
         self.load_notes()
 
-    def save_note(self, note_content: str, video_info: Optional[Dict[str, Any]] = None) -> bool:
+    def save_note(self, note_content: str, tags: List[str] = None, video_info: Optional[Dict[str, Any]] = None) -> bool:
         """메모를 저장합니다."""
         if note_content.strip():
             self.add_note(
                 content=note_content,
+                tags=tags or [],
                 video_info=video_info
             )
             return True
         return False
     
-    def add_note(self, content: str, video_info: Optional[Dict[str, Any]] = None) -> None:
+    def add_note(self, content: str, tags: List[str] = None, video_info: Optional[Dict[str, Any]] = None) -> None:
         """메모를 추가합니다."""
         note = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'content': content,
+            'tags': tags or [],
             'video_info': video_info or {},
             'created_at': datetime.now().isoformat()
         }
         self.notes.append(note)
         self.save_notes()
 
-    def get_notes(self) -> List[Dict[str, Any]]:
-        """저장된 메모 목록을 반환합니다."""
-        return sorted(self.notes, key=lambda x: x['created_at'], reverse=True)
+    def get_notes(self, tag: str = None) -> List[Dict[str, Any]]:
+        """저장된 메모 목록을 반환합니다. 태그가 지정된 경우 해당 태그의 메모만 반환합니다."""
+        sorted_notes = sorted(self.notes, key=lambda x: x['created_at'], reverse=True)
+        if tag:
+            return [note for note in sorted_notes if tag in note.get('tags', [])]
+        return sorted_notes
+
+    def get_all_tags(self) -> List[str]:
+        """모든 태그 목록을 반환합니다."""
+        tags = set()
+        for note in self.notes:
+            tags.update(note.get('tags', []))
+        return sorted(list(tags))
 
     def remove_note(self, timestamp: str) -> None:
         """특정 메모를 삭제합니다."""
