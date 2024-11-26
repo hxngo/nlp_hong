@@ -5,6 +5,7 @@ import numpy as np
 import logging
 import streamlit as st
 import whisper
+import warnings
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pytubefix import YouTube
@@ -22,9 +23,33 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
 
-
 # 로깅 설정
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# 경고 필터 설정 (확장)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="You are using `torch.load` with `weights_only=False`")
+warnings.filterwarnings("ignore", message="Examining the path of torch.classes raised")
+warnings.filterwarnings("ignore", message="torch.classes raised")
+warnings.filterwarnings("ignore", message="file_cache is only supported")
+warnings.filterwarnings("ignore", message=".*torch\.classes.*")
+
+# 로깅 레벨 설정 (확장)
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("chromadb").setLevel(logging.ERROR)
+logging.getLogger("oauth2client").setLevel(logging.ERROR)
+logging.getLogger("googleapiclient.discovery").setLevel(logging.ERROR)
+logging.getLogger("transformers").setLevel(logging.ERROR)
+logging.getLogger("httpx").setLevel(logging.ERROR)
+
+# HTTP 요청 로그 숨기기
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# 환경 변수 설정
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["CHROMADB_TELEMETRY"] = "false"
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
 def get_youtube_service():
     api_key = os.getenv('YOUTUBE_API_KEY')
@@ -70,22 +95,15 @@ class ContentAnalyzer:
         
             # 현재 비디오의 상세 정보 가져오기
             video_response = youtube.videos().list(
-                part='snippet,topicDetails',
+                part='snippet,statistics',
                 id=video_id
             ).execute()
         
             if not video_response['items']:
                 return []
             
-            current_video = video_response['items'][0]['snippet']
-                
-            # 검색 쿼리 생성 (제목, 설명, 태그 기반)
-            search_query = f"{current_video['title']}"
-            if 'tags' in current_video:
-                search_query += f" {' '.join(video_info['tags'][:3])}"
-            if 'description' in video_info:
-                # 설명에서 첫 100자만 사용
-                search_query += f" {video_info['description'][:100]}"
+            current_video = video_response['items'][0]
+            search_query = current_video['snippet']['title']
             
             # 연관 동영상 검색
             search_response = youtube.search().list(
@@ -94,9 +112,7 @@ class ContentAnalyzer:
                 part='snippet',
                 maxResults=max_results + 1,  # 여유있게 더 많은 결과 요청
                 relevanceLanguage='ko',
-                order='relevance',
-                videoCategoryId=current_video.get('categoryId'),
-                fields='items(id,snippet(title,description,thumbnails))'
+                order='relevance'
             ).execute()
         
             # 현재 비디오 제외하고 결과 처리
@@ -111,21 +127,27 @@ class ContentAnalyzer:
                     
                         if video_detail['items']:
                             video_info = video_detail['items'][0]
+                            channel_info = youtube.channels().list(
+                                part='snippet',
+                                id=video_info['snippet']['channelId']
+                            ).execute()
+
                             recommendations.append({
                                 'video_id': item['id']['videoId'],
                                 'title': video_info['snippet']['title'],
                                 'description': video_info['snippet']['description'],
                                 'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                                'channel_title': channel_info['items'][0]['snippet']['title'] if channel_info['items'] else 'N/A',
                                 'view_count': int(video_info['statistics'].get('viewCount', 0)),
-                                'published_at': video_info['snippet']['publishedAt']
                             })
+
+                        if len(recommendations) >= max_results:
+                            break
+
                     except Exception as detail_error:
                         print(f"비디오 상세 정보 가져오기 실패: {detail_error}")
                         continue
-                
-                    if len(recommendations) >= max_results:
-                        break
-                    
+
             return recommendations
         
         except Exception as e:
@@ -190,8 +212,10 @@ class ContentAnalyzer:
             if not text or len(text.strip()) == 0:
                 raise ValueError("텍스트가 비어있습니다.")
             
-            original_length = len(text.split())
-        
+            # 텍스트를 청크로 분할
+            chunks = self._split_text(text, max_length=4000)
+            summaries = []  
+                  
             # GPT 모델 초기화
             llm = ChatOpenAI(
                 model="gpt-3.5-turbo",
@@ -215,19 +239,53 @@ class ContentAnalyzer:
                 input_variables=["text", "max_length"]
             )
         
-            # GPT로 요약 생성
-            chain = prompt | llm
-            summary = chain.invoke({"text": text, "max_length": max_length})
+            # 각 청크 처리
+            for chunk in chunks:
+                chain = prompt | llm
+                chunk_summary = chain.invoke({
+                    "text": chunk, 
+                    "max_length": max_length // len(chunks)
+                })
+                summaries.append(chunk_summary.content)
         
+            # 최종 요약 생성
+            final_summary = " ".join(summaries)
+            if len(chunks) > 1:
+                chain = prompt | llm
+                final_summary = chain.invoke({
+                    "text": final_summary,
+                    "max_length": max_length
+                }).content
+            
             return {
-                'summary': summary.content,
-                'summary_length': len(summary.content.split()),
-                'original_length': original_length
+                'summary': final_summary,
+                'summary_length': len(final_summary.split()),
+                'original_length': len(text.split())
             }
         
         except Exception as e:
             raise Exception(f"GPT 요약 생성 실패: {str(e)}")
 
+    def _split_text(self, text: str, max_length: int = 4000) -> List[str]:
+        """긴 텍스트를 처리 가능한 크기의 청크로 나눕니다."""
+        words = text.split()
+        chunks = []
+        current_chunk = []
+        current_length = 0
+    
+        for word in words:
+            current_length += len(word) + 1
+            if current_length > max_length:
+                chunks.append(' '.join(current_chunk))
+                current_chunk = [word]
+                current_length = len(word)
+            else:
+                current_chunk.append(word)
+            
+        if current_chunk:
+            chunks.append(' '.join(current_chunk))
+        
+        return chunks
 
     def save_history(self) -> None:
         try:
@@ -283,8 +341,6 @@ class YouTubeExtractor:
 
 # VideoProcessor 클래스
 class VideoProcessor:
-
-    # VideoProcessor 클래스의 __init__ 메서드 수정
     def __init__(self):
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.youtube_api_key = os.getenv("YOUTUBE_API_KEY")
@@ -296,8 +352,12 @@ class VideoProcessor:
 
         self.model = whisper.load_model("base")
         self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-mpnet-base-v2",
-            model_kwargs={'device': 'cpu'}
+            model_name="sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={
+                'normalize_embeddings': True,
+                'batch_size': 32
+            }
         )
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -305,6 +365,7 @@ class VideoProcessor:
         )
         self.youtube_extractor = YouTubeExtractor()
         self.content_analyzer = ContentAnalyzer()
+        self.last_query = None
 
     def summarize_segments(self, segments: List[Dict[str, Any]], video_length: int) -> List[Dict[str, Any]]:
         """영상의 구간을 길이에 따라 요약합니다.
@@ -378,13 +439,6 @@ class VideoProcessor:
             recommendations = []
         
             if isinstance(transcription, dict) and 'text' in transcription:
-                # 자막 저장
-                if 'segments' in transcription:
-                    st.session_state.transcript_manager.add_transcript(
-                        video_id,
-                        transcription['segments']
-                    )
-            
                 # GPT 요약 생성
                 summary = self.content_analyzer.summarize_with_gpt(
                     transcription['text'],
@@ -394,44 +448,53 @@ class VideoProcessor:
                 # YouTube API를 사용한 추천 컨텐츠 생성
                 try:
                     from googleapiclient.discovery import build
-                    api_key = os.getenv('YOUTUBE_API_KEY')
-                    if not api_key:
-                        raise ValueError("YouTube API 키가 설정되지 않았습니다")
-                    
-                    youtube = build('youtube', 'v3', developerKey=api_key)
+                    youtube = build('youtube', 'v3', developerKey=os.getenv('YOUTUBE_API_KEY'))
                 
                     # 검색 쿼리 생성
                     search_query = video_info.get('title', '')
                 
-                    # 연관 동영상 검색
+                    # 연관 동영상 검색 (part 파라미터 수정)
                     search_response = youtube.search().list(
                         q=search_query,
                         type='video',
                         part='snippet',
                         maxResults=10,
                         relevanceLanguage='ko',
-                        order='relevance',
-                        fields='items(id,snippet(title, description, thumbnails))'
+                        order='relevance'
                     ).execute()
                 
-                    # 현재 비디오 제외하고 결과 처리
+                    # 현재 비디오를 제외한 추천 목록 생성
                     recommendations = []
                     for item in search_response.get('items', []):
                         if item['id']['videoId'] != video_id:
-                            recommendations.append({
-                                'video_id': item['id']['videoId'],
-                                'title': item['snippet']['title'],
-                                'description': item['snippet']['description'], 
-                                'thumbnail': item['snippet']['thumbnails']['high']['url']
-                            })
-
-                            if len(recommendations) >= 5:
-                                break
+                            try:
+                                # 비디오 상세 정보 가져오기
+                                video_detail = youtube.videos().list(
+                                    part='snippet,statistics',
+                                    id=item['id']['videoId']
+                                ).execute()
+                            
+                                if video_detail['items']:
+                                    video_info = video_detail['items'][0]
+                                    recommendations.append({
+                                        'video_id': item['id']['videoId'],
+                                        'title': video_info['snippet']['title'],
+                                        'description': video_info['snippet']['description'],
+                                        'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                                        'channel_title': video_info['snippet']['channelTitle'],
+                                        'view_count': int(video_info['statistics'].get('viewCount', 0))
+                                    })
+                                
+                                    if len(recommendations) >= 5:
+                                        break
+                            except Exception as detail_error:
+                                print(f"비디오 상세 정보 가져오기 실패: {detail_error}")
+                                continue
                             
                 except Exception as e:
                     print(f"YouTube API 검색 실패: {e}")
                     recommendations = []
-            
+
             documents = self._create_documents(transcription, video_info)
             vectorstore = self._create_vectorstore(documents)
 
@@ -444,7 +507,95 @@ class VideoProcessor:
             }
         except Exception as e:
             raise RuntimeError(f"비디오 처리 중 오류 발생: {e}")
-        
+
+    def search_content(self, vectorstore: Chroma, query: str) -> Dict[str, Any]:
+        """벡터스토어에서 쿼리에 관련된 내용을 검색합니다."""
+        try:
+            self.last_query = query
+            
+            # GPT 모델 초기화
+            llm = ChatOpenAI(
+                model="gpt-3.5-turbo-16k",
+                temperature=0.3,
+                max_tokens=2000,
+                openai_api_key=self.openai_api_key
+            )
+            
+            # 프롬프트 템플릿
+            prompt_template = """
+            아래는 YouTube 영상의 내용입니다. 주어진 질문에 대해 영상의 내용을 기반으로 정확하고 상세한 답변을 제공해주세요.
+
+            규칙:
+            1. 영상 내용에 명시된 정보만 사용하세요
+            2. 확실하지 않은 내용은 "영상에서 언급되지 않았습니다"라고 답변하세요
+            3. 답변은 논리적 순서로 구성해주세요
+            4. 가능한 경우 구체적인 예시나 설명을 포함하세요
+
+            영상 내용:
+            {context}
+
+            질문: {question}
+
+            답변 형식:
+            1. 직접적인 답변
+            2. 추가 설명 및 맥락
+            3. 관련 예시 (있는 경우)
+
+            답변:
+            """
+            
+            PROMPT = PromptTemplate(
+                template=prompt_template,
+                input_variables=["context", "question"]
+            )
+            
+            # 검색 설정 단순화
+            retriever = vectorstore.as_retriever(
+                search_kwargs={"k": 5}  # 검색할 문서 수만 지정
+            )
+            
+            # QA 체인 생성
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=retriever,
+                chain_type_kwargs={
+                    "prompt": PROMPT,
+                    "verbose": False
+                }
+            )
+
+            # 검색 실행
+            result = qa_chain.invoke({"query": query})
+            
+            # source_documents 접근
+            source_docs = retriever.get_relevant_documents(query)
+            
+            # 결과 후처리
+            processed_documents = []
+            seen_content = set()
+            
+            for doc in source_docs:
+                if doc.page_content not in seen_content:
+                    seen_content.add(doc.page_content)
+                    processed_documents.append({
+                        'content': doc.page_content,
+                        'metadata': {
+                            **doc.metadata,
+                            'char_length': len(doc.page_content)
+                        }
+                    })
+            
+            return {
+                'answer': result.get('result', result.get('answer', '')),
+                'source_documents': processed_documents,
+                'processed_at': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logging.error(f"검색 중 오류 발생: {str(e)}")
+            raise Exception(f"검색 실패: {str(e)}")
+
     def _extract_transcription(self, url: str) -> Dict[str, Any]:
         try:
             yt = YouTube(url)
@@ -458,48 +609,67 @@ class VideoProcessor:
             caption_langs = ['ko', 'en', 'a.ko', 'a.en']
             for lang in caption_langs:
                 if lang in available_captions:
-                    transcript = available_captions[lang]
-                    print(f"Selected caption language: {lang}")
-                    break
+                    try:
+                        transcript = available_captions[lang]
+                        print(f"Selected caption language: {lang}")
+                        break
+                    except Exception as e:
+                        print(f"자막 로드 실패 ({lang}): {str(e)}")
+                        continue
         
             if transcript:
-                caption_tracks = transcript.generate_srt_captions()
-                for segment in caption_tracks.split('\n\n'):
-                    if not segment.strip():
-                        continue
-                
-                    lines = segment.split('\n')
-                    if len(lines) >= 3:
-                        try:
-                            times = lines[1].split(' --> ')
-                            start_time = self._time_to_seconds(times[0])
-                            end_time = self._time_to_seconds(times[1])
-                            text = ' '.join(lines[2:])
-                            segments.append({
-                                'start': start_time,
-                                'end': end_time,
-                                'text': text
-                            })
-                        except Exception as e:
-                            print(f"세그먼트 파싱 오류: {str(e)}")
+                try:
+                    caption_tracks = transcript.generate_srt_captions()
+                    for segment in caption_tracks.split('\n\n'):
+                        if not segment.strip():
                             continue
-        
+                
+                        lines = segment.split('\n')
+                        if len(lines) >= 3:
+                            try:
+                                times = lines[1].split(' --> ')
+                                start_time = self._time_to_seconds(times[0])
+                                end_time = self._time_to_seconds(times[1])
+                                text = ' '.join(lines[2:]).strip()
+                            
+                                if text: # 빈 텍스트 제외
+                                    segments.append({
+                                        'start': start_time,
+                                        'end': end_time,
+                                        'text': text
+                                    })
+                            except Exception as e:
+                                print(f"세그먼트 파싱 오류: {str(e)}")
+                                continue
+                except Exception as e:
+                    print(f"자막 생성 실패: {str(e)}")
+
             # 자막이 없거나 세그먼트가 비어있는 경우 Whisper 사용
             if not segments:
                 print("자막을 찾을 수 없어 Whisper 사용...")
-                audio = yt.streams.filter(only_audio=True).first()
-                audio_file = audio.download(filename="temp_audio.mp3")
-                result = self.model.transcribe(audio_file)
-                segments = [
-                    {
-                        'start': segment['start'],
-                        'end': segment['end'],
-                        'text': segment['text']
-                    }
-                    for segment in result['segments']
-                ]
-                if os.path.exists(audio_file):
-                    os.remove(audio_file)
+                try:
+                    audio = yt.streams.filter(only_audio=True).first()
+                    if not audio:
+                        raise Exception("오디오 스트림을 찾을 수 없습니다.")
+                    
+                    audio_file = audio.download(filename="temp_audio.mp3")
+                    result = self.model.transcribe(audio_file)
+                
+                    if result and 'segments' in result:
+                        segments = [
+                            {
+                                'start': segment['start'],
+                                'end': segment['end'],
+                                'text': segment['text'].strip()
+                            }
+                            for segment in result['segments']
+                            if segment['text'].strip()
+                        ]
+                    
+                    if os.path.exists(audio_file):
+                        os.remove(audio_file)
+                except Exception as e:
+                    print(f"Whisper 처리 실패: {str(e)}")
 
             if not segments:
                 raise Exception("자막을 추출할 수 없습니다.")
@@ -507,10 +677,10 @@ class VideoProcessor:
             return {
                 'text': ' '.join(segment['text'] for segment in segments),
                 'segments': segments
-            }
+                }
         except Exception as e:
-            logging.error(f"자막 추출 중 오류 발생: {e}")
-            return {"text": "", "segments": []}
+                logging.error(f"자막 추출 중 오류 발생: {e}")
+                return {"text": "", "segments": []}
 
     def _create_documents(self, transcription: Dict[str, Any], video_info: Dict[str, Any]) -> List[Document]:
         metadata = {"title": video_info.get("title", ""), "author": video_info.get("author", "")}
@@ -535,74 +705,85 @@ class VideoProcessor:
         except Exception as e:
             print(f"벡터스토어 생성 실패: {str(e)}")
             return None
-
-    def search_content(self, vectorstore: Chroma, query: str, role: str = "일반") -> Dict[str, Any]:
-        """벡터스토어에서 쿼리에 관련된 내용을 검색합니다.
-
-        Args:
-            vectorstore: chroma 벡터스토어 인스턴스
-            query: 검색할 질문
-            role: 답변 스타일 (기본값: "일반")
-
-        Returns:
-            검색 결과와 관련 문서를 포함한 딕셔너리
-
-        """
-        try:
-            llm = ChatOpenAI(
-                model="gpt-3.5-turbo",
-                temperature=0.2,
-                openai_api_key=self.openai_api_key
-            )
-            
-            prompt_template = """
-            다음 영상 내용을 바탕으로 질문에 답변해주세요.
-            답변은 명확하고 이해하기 쉽게 작성해주세요.
-
-            영상 내용:
-            {context}
-
-            질문: {question}
-
-            답변:
-            """
-            
-            PROMPT = PromptTemplate(
-                template=prompt_template,
-                input_variables=["context", "question"]
-            )
-            
-            # QA 체인 생성
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=llm,
-                chain_type="stuff",
-                retriever=vectorstore.as_retriever(
-                    search_kwargs={"k": 3} #상위 3개 문서만 검색
-                ),
-                chain_type_kwargs={
-                    "prompt": PROMPT,
-                    "verbose": False #디버그 출력 비활성화
-                },
-                return_source_documents=True
-            )
-
-            # 검색 실행
-            result = qa_chain.invoke({"query": query})
-
-            # 결과 반환
-            return {
-                'answer': result['result'],
-                'source_documents': [
-                    {
-                        'content': doc.page_content,
-                        'metadata': doc.metadata,
-                        'relevance_score': getattr(doc, 'relevance_score', None)
-                    } for doc in result['source_documents']
+    def post_process_search_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+            """검색 결과를 후처리하여 품질을 개선합니다."""
+            try:
+                # 답변 품질 검증
+                if len(result['answer'].strip()) < 10:
+                    # 답변이 너무 짧으면 재검색
+                    return self.search_content(self.vectorstore, self.last_query)
+                
+                # 관련성 점수 기반 필터링
+                filtered_sources = [
+                    doc for doc in result['source_documents']
+                    if getattr(doc, 'relevance_score', 0) > 0.7
                 ]
-            }
             
-        except Exception as e:
-            raise Exception(f"검색 실패: {str(e)}")
+                # 중복 내용 제거
+                seen_content = set()
+                unique_sources = []
+                for doc in filtered_sources:
+                    if doc.page_content not in seen_content:
+                        seen_content.add(doc.page_content)
+                        unique_sources.append(doc)
+            
+                # 메타데이터 보강
+                for doc in unique_sources:
+                    doc.metadata['relevance_score'] = getattr(doc, 'relevance_score', None)
+                    doc.metadata['char_length'] = len(doc.page_content)
+                
+                return {
+                    'answer': result['answer'],
+                    'source_documents': unique_sources,
+                    'processed_at': datetime.now().isoformat()
+                }
+            
+            except Exception as e:
+                logging.error(f"결과 후처리 실패: {str(e)}")
+                return result
+
+def _post_process_search_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    """검색 결과를 후처리하여 품질을 개선합니다."""
+    try:
+        # 답변 품질 검증
+        if len(result['result'].strip()) < 10 and self.last_query:
+            # 답변이 너무 짧으면 재검색
+            return self.search_content(self.vectorstore, self.last_query)
+            
+        # 중복 제거 및 관련성 점수 처리
+        processed_documents = []
+        seen_content = set()
+            
+        for doc in result['source_documents']:
+            if doc.page_content not in seen_content:
+                seen_content.add(doc.page_content)
+                processed_documents.append({
+                    'content': doc.page_content,
+                    'metadata': {
+                        **doc.metadata,
+                        'relevance_score': getattr(doc, 'relevance_score', None),
+                        'char_length': len(doc.page_content)
+                    }
+                })
+            
+        return {
+            'answer': result['result'],
+            'source_documents': processed_documents,
+            'processed_at': datetime.now().isoformat()
+        }
+            
+    except Exception as e:
+        logging.error(f"결과 후처리 실패: {str(e)}")
+        return {
+            'answer': result.get('result', ''),
+            'source_documents': [],
+            'error': str(e)
+        }
+
+@st.cache_data(ttl=3600)
+def search_with_cache(self, query: str, video_id: str) -> Dict[str, Any]:
+    """캐시를 활용한 검색 기능"""
+    return self.search_content(self.vectorstore, query)
 
 class TranscriptManager:
     def __init__(self):

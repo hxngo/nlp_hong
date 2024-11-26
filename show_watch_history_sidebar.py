@@ -1,21 +1,51 @@
+# watch_history_sidebar.py
 import streamlit as st
+import pandas as pd
 
 def show_watch_history_sidebar():
-    st.subheader("📺 시청 기록")
-    if hasattr(st.session_state.processor.content_analyzer, 'user_history'):
+    """시청 기록을 사이드바에 표시하는 함수"""
+    st.sidebar.header('📚 시청 기록')
+    
+    if 'processor' in st.session_state:
         history = st.session_state.processor.content_analyzer.user_history
-        if history and len(history) > 0:
-            for idx, item in enumerate(history):
-                with st.expander(f"🎥 {item['title'][:30]}..."):
-                    st.write(f"시청 시간: {item['timestamp']}")
-                    video_url = f"https://www.youtube.com/watch?v={item['video_id']}"
-                    st.markdown(f"[영상 보기]({video_url})")
-                    
-                    # 삭제 버튼에 고유한 key 추가 (idx 활용)
-                    if st.button('삭제', key=f"delete_history_{item['video_id']}_{idx}"):
-                        st.session_state.processor.content_analyzer.remove_from_history(item['video_id'])
-                        st.success('시청 기록이 삭제되었습니다!')
-                        st.rerun()
+        if history:
+            # 데이터프레임 생성
+            history_df = pd.DataFrame([
+                {
+                    'Watched At': item['timestamp'],
+                    '제목': item['title'],
+                    '영상 ID': item['video_id']
+                } for item in history
+            ])
+            
+            # 시청 시간 기준으로 정렬 (최신순)
+            history_df = history_df.sort_values('Watched At', ascending=False)
+            
+            # 데이터프레임 표시
+            st.sidebar.dataframe(
+                history_df,
+                hide_index=True,
+                column_config={
+                    'Watched At': st.column_config.DatetimeColumn(
+                        'Watched At',
+                        format='YYYY-MM-DD HH:mm',
+                        width='medium'
+                    ),
+                    '제목': st.column_config.Column(
+                        width='large'
+                    ),
+                    '영상 ID': st.column_config.Column(
+                        width='small'
+                    )
+                },
+                height=300  # 높이 제한
+            )
+            
+            # 전체 기록 삭제 버튼
+            if st.sidebar.button('전체 기록 삭제', key='clear_history'):
+                st.session_state.processor.content_analyzer.user_history = []
+                st.sidebar.success('시청 기록이 삭제되었습니다.')
+                st.rerun()
+                
         else:
-            st.info('시청 기록이 없습니다.')
-
+            st.sidebar.info('아직 시청 기록이 없습니다.')

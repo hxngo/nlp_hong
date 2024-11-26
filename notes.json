@@ -1,30 +1,82 @@
 [
   {
-    "timestamp": "2024-11-22 22:32:57",
-    "content": "히지니",
+    "timestamp": "2024-11-26 16:02:17",
+    "content": "ㅇㅇ",
     "video_info": {
-      "title": "RAG Explained",
-      "author": "IBM Technology",
-      "length": 483,
-      "views": 115181,
-      "description": "Get the interactive demo → https://ibm.biz/BdmPEb\nLearn about the technology → https://ibm.biz/BdmPEp\n\nOftentimes, GAI and RAG discussions are interconnected. Learn more about about RAG is and how it works alongside your databases, LLMs and vector databases for better results with Luv Aggarwal and Shawn Brennan. \n\nAI news moves fast. Sign up for a monthly newsletter for AI updates from IBM → https://ibm.biz/BdmP2c",
-      "thumbnail_url": "https://i.ytimg.com/vi/qppV3n3YlF8/sddefault.jpg",
-      "publish_date": "2024-05-07 05:50:45-07:00"
+      "title": "I Ate The World’s Largest Slice Of Pizza",
+      "author": "MrBeast",
+      "length": 482,
+      "views": 282165517,
+      "description": "This slice of pizza was expensive...\nNew Merch - https://mrbeast.store\r\n\r\nCheck out Viewstats! - https://www.viewstats.com/\n\nSUBSCRIBE OR I TAKE YOUR DOG\n\nFor any questions or inquiries regarding this video please reach out to chucky@mrbeastbusiness.com\r\n\r\n----------------------------------------------------------------\r\nfollow all of these or i will kick you\r\n• Facebook - https://www.facebook.com/MrBeast6000/\r\n• Twitter - https://twitter.com/MrBeast\n•  Instagram - https://www.instagram.com/mrbeast\r\n--------------------------------------------------------------------",
+      "thumbnail_url": "https://i.ytimg.com/vi/Rj_vssRaZlQ/sddefault.jpg",
+      "publish_date": "2020-08-01 13:00:02-07:00"
     },
-    "created_at": "2024-11-22T22:32:57.050781"
+    "created_at": "2024-11-26T16:02:17.221808"
   },
   {
-    "timestamp": "2024-11-23 20:05:48",
-    "content": "rlatjdgus\n",
+    "timestamp": "2024-11-26 20:04:45",
+    "content": "장세빈",
     "video_info": {
-      "title": "What is Retrieval-Augmented Generation (RAG)?",
-      "author": "IBM Technology",
-      "length": 395,
-      "views": 794457,
-      "description": "Get hands on RAG training in watsonx.ai→ https://ibm.biz/BdK6UZ\nLearn about the technology → https://ibm.biz/BdMsRT\n\nLarge language models usually give great answers, but because they're limited to the training data used to create the model. Over time they can become incomplete--or worse, generate answers that are just plain wrong. One way of improving the LLM results is called \"retrieval-augmented generation\" or RAG. In this video, IBM Senior Research Scientist Marina Danilevsky explains the LLM/RAG framework and how this combination delivers two big advantages, namely: the model gets the most up-to-date and trustworthy facts, and you can see where the model got its info, lending more credibility to what it generates.\n\nGet weekly AI, cloud, security and sustainability industry news, events and insights. → https://ibm.biz/BdK6UY",
-      "thumbnail_url": "https://i.ytimg.com/vi/T-D1OfcDW1M/sddefault.jpg",
-      "publish_date": "2023-08-23 04:00:32-07:00"
+      "kind": "youtube#video",
+      "etag": "ELyM2B6-cy8ow4dps0r21HR7T5Y",
+      "id": "_g1uP1rkwK8",
+      "snippet": {
+        "publishedAt": "2020-07-16T09:48:36Z",
+        "channelId": "UCufMvGtKg2hoTs0h1Ti5cxg",
+        "title": "[깨봉수학] 초등학생도 이해하는 적분 _ 적분하라! 무엇을 미분했나?!",
+        "description": "오랜만에 돌아온 깨봉박사의 5분 #수학 !\n오늘 이야기는 구독자님들의 문의가 많았던~~\n#적분 !! \n\n잠깐! \n이 영상을 보기전에 \n깨봉채널의 미분 영상을 보지 못하셨으면 \n꼭 미분을  정주행하고 오셔야 해요!!!\n\n[초등학생도 이해하는 함수편] https://youtu.be/EoUCOihCFG0\n[초등학생도 이해하는 미분 1편] https://youtu.be/t99QiDaFs1c\n[초등학생도 이해하는 미분 2편] https://youtu.be/qcorAuRQJzA\n[초등학생도 이해하는 미분 3편] https://youtu.be/OZUCfjg53Cw\n\n미분은 적분!\n적분은 미분! \n\n한가지의 개념을 Duality 한다면 \n쉽게 깨우칠 수있을 거예요!\n\n놀면서❤️수학만점~인공지능수학 깨봉!\n\n[깨봉수학 바로가기] ▶ https://bit.ly/2OtoHod\n[깨봉 유튜브 구독하기] ▶ http://bit.ly/2wNT4A7\n[카카오톡 상담하기] ▶ https://bit.ly/3dgDA7F",
+        "thumbnails": {
+          "default": {
+            "url": "https://i.ytimg.com/vi/_g1uP1rkwK8/default.jpg",
+            "width": 120,
+            "height": 90
+          },
+          "medium": {
+            "url": "https://i.ytimg.com/vi/_g1uP1rkwK8/mqdefault.jpg",
+            "width": 320,
+            "height": 180
+          },
+          "high": {
+            "url": "https://i.ytimg.com/vi/_g1uP1rkwK8/hqdefault.jpg",
+            "width": 480,
+            "height": 360
+          },
+          "standard": {
+            "url": "https://i.ytimg.com/vi/_g1uP1rkwK8/sddefault.jpg",
+            "width": 640,
+            "height": 480
+          },
+          "maxres": {
+            "url": "https://i.ytimg.com/vi/_g1uP1rkwK8/maxresdefault.jpg",
+            "width": 1280,
+            "height": 720
+          }
+        },
+        "channelTitle": "인공지능수학 깨봉",
+        "tags": [
+          "깨봉",
+          "수학",
+          "인공지능수학",
+          "조봉한",
+          "초등수학",
+          "적분",
+          "미분"
+        ],
+        "categoryId": "27",
+        "liveBroadcastContent": "none",
+        "localized": {
+          "title": "[깨봉수학] 초등학생도 이해하는 적분 _ 적분하라! 무엇을 미분했나?!",
+          "description": "오랜만에 돌아온 깨봉박사의 5분 #수학 !\n오늘 이야기는 구독자님들의 문의가 많았던~~\n#적분 !! \n\n잠깐! \n이 영상을 보기전에 \n깨봉채널의 미분 영상을 보지 못하셨으면 \n꼭 미분을  정주행하고 오셔야 해요!!!\n\n[초등학생도 이해하는 함수편] https://youtu.be/EoUCOihCFG0\n[초등학생도 이해하는 미분 1편] https://youtu.be/t99QiDaFs1c\n[초등학생도 이해하는 미분 2편] https://youtu.be/qcorAuRQJzA\n[초등학생도 이해하는 미분 3편] https://youtu.be/OZUCfjg53Cw\n\n미분은 적분!\n적분은 미분! \n\n한가지의 개념을 Duality 한다면 \n쉽게 깨우칠 수있을 거예요!\n\n놀면서❤️수학만점~인공지능수학 깨봉!\n\n[깨봉수학 바로가기] ▶ https://bit.ly/2OtoHod\n[깨봉 유튜브 구독하기] ▶ http://bit.ly/2wNT4A7\n[카카오톡 상담하기] ▶ https://bit.ly/3dgDA7F"
+        },
+        "defaultAudioLanguage": "ko"
+      },
+      "statistics": {
+        "viewCount": "129996",
+        "likeCount": "2135",
+        "favoriteCount": "0",
+        "commentCount": "70"
+      }
     },
-    "created_at": "2024-11-23T20:05:48.398216"
+    "created_at": "2024-11-26T20:04:45.263887"
   }
 ]

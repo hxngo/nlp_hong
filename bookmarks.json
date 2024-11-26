@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "timestamp": "00:12",
+    "content": "Let's start with a short quiz.",
+    "video_info": {
+      "title": "",
+      "url": "https://youtu.be/t99QiDaFs1c?si=PuLEypYvCTNy8moG",
+      "timestamp": 12
+    }
+  },
+  {
+    "timestamp": "00:12",
+    "content": "Let's start with a short quiz.",
+    "video_info": {
+      "title": "",
+      "url": "https://youtu.be/t99QiDaFs1c?si=PuLEypYvCTNy8moG",
+      "timestamp": 12
+    }
+  }
+]

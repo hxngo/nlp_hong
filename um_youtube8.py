@@ -94,7 +94,6 @@ def format_time(seconds: float) -> str:
     return f"{minutes:02d}:{seconds:02d}"
 
 def search_content():
-    """컨텐츠 검색 함수"""
     try:
         if not st.session_state.search_query:
             st.warning('검색어를 입력해주세요.')
@@ -110,7 +109,7 @@ def search_content():
                 st.session_state.search_query
             )
             
-            # 검색 기록 저장
+            # 검색 기록만 저장
             st.session_state.search_history.append({
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 'query': st.session_state.search_query,
@@ -122,7 +121,7 @@ def search_content():
     except Exception as e:
         st.error(f'검색 중 오류가 발생했습니다: {str(e)}')
         return None
-
+        
 def main():
     # 세션 상태 초기화 및 VideoProcessor 인스턴스 생성
     initialize_session_state()
@@ -238,7 +237,7 @@ def main():
                         st.divider()
                         show_search_history_sidebar()
         
-                        st.divider()
+                        st.subheader('📺 시청 기록')
                         show_watch_history_sidebar()
 
                 # 추천 컨텐츠 섹션 
